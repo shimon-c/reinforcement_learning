@@ -82,7 +82,7 @@ class TabularModel:
         print(Q_table)
         self.print_q_table(Q_table=Q_table)
 
-
+    # Q-learning example
     def q_learn(self, learning_rate = 0.8, discount_factor = 0.95, exploration_prob = 0.2, epochs = 1000):
         # Q-learning algorithm
         Q_table = self.Q_table
@@ -170,13 +170,16 @@ class TabularModel:
             return 0.1
         return 0
 
-    def value_iteration(self, actions,  discount_factor = 0.95, epsilon=1e-16):
+    # Value iteration example
+    def value_iteration(self, actions,  discount_factor = 0.95, epsilon=1e-16, max_iters=10000):
         # Initialize value function
         states = [k for k in range(self.n_states)]
         V = self.V_table
         V_prv = V.copy()
         epoch = 0
-        while True:
+        loop_flag = True
+        while loop_flag:
+            # Expectation step
             delta = 0
             for s in states:
                 v = V[s]
@@ -202,6 +205,8 @@ class TabularModel:
                 break
             V_prv = V.copy()
             epoch += 1
+            if epoch>max_iters:
+                loop_flag = False
         # Extract optimal policy
         policy = {}
         for s in states:
