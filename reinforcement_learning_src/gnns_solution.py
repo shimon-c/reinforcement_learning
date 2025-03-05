@@ -54,7 +54,9 @@ def solve_lin():
         yo += del_vals[1]
         zo += del_vals[2]
         print(f'del_vec:{del_vals}')
+    return (xo,yo,zo)
 
-solve_lin()
+x,y,z = solve_lin()
+print(f'x:{x}, y:{y}, z:{z}')
 
 
