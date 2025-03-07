@@ -1,20 +1,101 @@
-#https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
-# pip3 install gymnasium[classic_control]
-
-import gymnasium as gym
 import random
 import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
 
+import numpy as np
 import torch
 import torch.nn as nn
 import math
 import torch.optim as optim
 import torch.nn.functional as F
 
-env = gym.make("CartPole-v1")
+env_list = [[-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-20,-1,-1,-1,-1,-1],
+        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-1,-1,-1,-1,-1,100],
+]
+
+# Assume actions can be left,right, up, down So 4 actions.
+LEFT=0
+RIGHT=1
+UP=2
+DOWN=3
+env_array = np.array(env_list)
+class Enviroment:
+    MAX_PENALTY = 1000
+    def __init__(self, arr=None):
+        assert arr is not None
+        self.env_arr = np.array(arr)
+
+    def get_tensor(self, nx,ny):
+        return torch.Tensor([nx,ny])
+    def __call__(self, x=None,y=None, act:int=None) -> float:
+
+        Y,X = self.env_arr.shape
+        reward = -1
+        # New state
+        nx,ny=x,y
+        yi,xi = int(y.item()),int(x.item())
+        if act == LEFT:
+            if x == 0:
+                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+            reward = self.env_arr[yi,xi-1]
+            ny,nx=y,x-1
+        if act == RIGHT:
+            if x >= X - 1:
+                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+            reward = self.env_arr[yi,xi+1]
+            ny,nx=y,x+1
+        if act == DOWN:
+            if y == 0:
+                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+            reward = self.env_arr[yi-1,xi]
+            ny,nx=y-1,x
+        if act == UP:
+            if y >= Y - 1:
+                return (nx,ny),self.MAX_PENALTY,False
+            reward = self.env_arr[yi+1,xi]
+            ny,nx=y+1,x
+        # episode is finished when we get to the terminal state
+        terminate_stat = ny==Y-1 and nx==X-1
+        new_state = torch.Tensor([nx,ny])
+        return new_state, reward, terminate_stat
+
+    def get_num_acts(self):
+        return 4
+
+    def get_state_size(self):
+        Y,X = self.env_arr.shape
+        return X*Y
+
+    def sample_state(self):
+        Y,X = self.env_arr.shape
+        x = random.randint(0, X-1)
+        y = random.randint(0, Y-1)
+        return (x,y)
+
+    def sample_action(self):
+        n_actions = self.get_num_acts()
+        act = random.randint(0,n_actions-1)
+        return act
+
+    def reset(self):
+        return self.sample_state()
+
+    #observation, reward, terminated, truncated, _ = env.step(action.item())
+    def step(self,state=None, action=None):
+        x,y = state[0,0], state[0,1]
+        nstate, reward, terminate_stat = self(x=x, y=y,act=action)
+        return nstate, reward, terminate_stat,0,0
+
+
+#env = gym.make("CartPole-v1")
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -30,8 +111,14 @@ device = torch.device(
     "cpu"
 )
 
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+#Transition = namedtuple('Transition',
+#                        ('state', 'action', 'next_state', 'reward'))
+class Transition:
+    def __init__(self, x=None, y=None, act=None, next_state=None, reward=None):
+        self.x = x
+        self.y = y
+        self.act = act
+        self.reward = reward
 
 
 class ReplayMemory(object):
@@ -51,15 +138,20 @@ class ReplayMemory(object):
 
 class DQN(nn.Module):
 
-    def __init__(self, n_observations, n_actions):
+    def __init__(self, n_observations, n_actions, ncols=None):
         super(DQN, self).__init__()
         self.layer1 = nn.Linear(n_observations, 128)
         self.layer2 = nn.Linear(128, 128)
         self.layer3 = nn.Linear(128, n_actions)
+        if ncols is None:
+            ncols = int(math.sqrt(n_observations))
+        self.ncols = ncols
+
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
-    def forward(self, x):
+    def forward(self,state):
+        x = state[0,1]*self.ncols + state[0,0]
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         return self.layer3(x)
@@ -79,14 +171,15 @@ EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 
-# Get number of actions from gym action space
-n_actions = env.action_space.n
+# Get number of actions from enviroment
+env = Enviroment(arr=env_list)
+n_actions = env.get_num_acts()
 # Get the number of state observations
-state, info = env.reset()
-n_observations = len(state)
+n_observations = env.get_state_size()
 
 policy_net = DQN(n_observations, n_actions).to(device)
 target_net = DQN(n_observations, n_actions).to(device)
+# We start with random policy net
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
@@ -107,7 +200,7 @@ def select_action(state):
             # found, so we pick action with the larger expected reward.
             return policy_net(state).max(1).indices.view(1, 1)
     else:
-        return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
+        return torch.tensor([[env.sample_action()]], device=device, dtype=torch.long)
 
 episode_durations = []
 
@@ -189,11 +282,11 @@ else:
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
-    state, info = env.reset()
+    state = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
         action = select_action(state)
-        observation, reward, terminated, truncated, _ = env.step(action.item())
+        observation, reward, terminated, truncated, _ = env.step(state=state, action=action.item())
         reward = torch.tensor([reward], device=device)
         done = terminated or truncated
 
