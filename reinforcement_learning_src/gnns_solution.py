@@ -8,12 +8,19 @@ x≈4632.68 km,y≈602.87 km,z≈4197.01 km
 
 
 
-satalites= [
+sats1= [
     #each row [x,y,z], d
     [(15600,7540,20140),20432],
     [(18760,2750,18610), 21045],
     [(17610,14630,13480), 21189],
     [(19170,610,18390),19729]
+]
+
+sats2=[
+    [(20000, 5000,21000), 21500],
+    [(18000,10000,19000), 22000],
+    [(19000, 15000, 14000),22500],
+    [(22000,3000,18000), 21000]
 ]
 
 def solve_lin_step(sat_locs, xo=None,yo=None,zo=None,tau=0,C=300000):
@@ -35,7 +42,7 @@ def solve_lin_step(sat_locs, xo=None,yo=None,zo=None,tau=0,C=300000):
 
     return del_vec
 
-def solve_lin():
+def solve_lin(satalites):
     N = len(satalites)
     A = np.zeros((N, 4))
     sat_locs = np.zeros((N,4))
@@ -56,7 +63,9 @@ def solve_lin():
         print(f'del_vec:{del_vals}')
     return (xo,yo,zo)
 
-x,y,z = solve_lin()
+x,y,z = solve_lin(sats1)
+print(f'x:{x}, y:{y}, z:{z}')
+x,y,z = solve_lin(sats2)
 print(f'x:{x}, y:{y}, z:{z}')
 
 
