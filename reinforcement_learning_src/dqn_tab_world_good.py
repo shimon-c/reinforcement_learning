@@ -202,7 +202,7 @@ class DQN(nn.Module):
             next_state = self.get_next_state(state)
             ny,nx = next_state[0,0].item(), next_state[0,1].item()
             path.append((nx,ny))
-            if x==X-1 and y==Y-1:
+            if nx==X-1 and ny==Y-1:
                 done = True
             state = next_state
         path_str = ''
@@ -286,7 +286,7 @@ def plot_durations(show_result=False):
 
 def optimize_model():
     if len(memory) < BATCH_SIZE:
-        return
+        return 10
     transitions = memory.sample(BATCH_SIZE)
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
@@ -332,6 +332,7 @@ def optimize_model():
     optimizer.step()
     cur_loss = loss.detach().cpu().item()
     print(f'cur_loss: {cur_loss}')
+    return cur_loss
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
@@ -363,7 +364,7 @@ for i_episode in range(num_episodes):
         state = next_state
 
         # Perform one step of the optimization (on the policy network)
-        optimize_model()
+        cur_loss = optimize_model()
 
         # Soft update of the target network's weights
         # θ′ ← τ θ + (1 −τ )θ′
@@ -373,7 +374,7 @@ for i_episode in range(num_episodes):
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net.load_state_dict(target_net_state_dict)
 
-        if done:
+        if done or cur_loss<0.001:
             episode_durations.append(t + 1)
             plot_durations()
             break
