@@ -35,15 +35,15 @@ class Enviroment:
 
     def get_tensor(self, nx,ny):
         return torch.Tensor([nx,ny])
-    def __call__(self, x=None,y=None, act:int=None) -> float:
 
+    def __call__(self, x=None,y=None, act:int=None) -> float:
         Y,X = self.env_arr.shape
         reward = -1
         # New state
         nx,ny=x,y
         yi,xi = int(y.item()),int(x.item())
         if act == LEFT:
-            if x == 0:
+            if x <= 0:
                 return self.get_tensor(nx,ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi,xi-1]
             ny,nx=y,x-1
@@ -53,18 +53,18 @@ class Enviroment:
             reward = self.env_arr[yi,xi+1]
             ny,nx=y,x+1
         if act == DOWN:
-            if y == 0:
+            if y <= 0:
                 return self.get_tensor(nx,ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi-1,xi]
             ny,nx=y-1,x
         if act == UP:
             if y >= Y - 1:
-                return (nx,ny),self.MAX_PENALTY,False
+                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi+1,xi]
             ny,nx=y+1,x
         # episode is finished when we get to the terminal state
         terminate_stat = ny==Y-1 and nx==X-1
-        new_state = torch.Tensor([nx,ny])
+        new_state = self.get_tensor(nx,ny)
         return new_state, reward, terminate_stat
 
     def get_num_acts(self):
@@ -92,7 +92,13 @@ class Enviroment:
     def step(self,state=None, action=None):
         x,y = state[0,0], state[0,1]
         nstate, reward, terminate_stat = self(x=x, y=y,act=action)
+        if not (nstate[0,0]>=0 and nstate[0,0] < self.env_arr.shape[0]
+                and nstate[0,1]>=0 and nstate[0,1] < self.env_arr.shape[1])
+            print("Bug")
         return nstate, reward, terminate_stat,0,0
+
+    def get_shape(self):
+        return self.env_arr.shape
 
 
 #env = gym.make("CartPole-v1")
@@ -114,11 +120,11 @@ device = torch.device(
 #Transition = namedtuple('Transition',
 #                        ('state', 'action', 'next_state', 'reward'))
 class Transition:
-    def __init__(self, x=None, y=None, act=None, next_state=None, reward=None):
-        self.x = x
-        self.y = y
+    def __init__(self, state=None, act=None, next_state=None, reward=None):
+        self.state = state
         self.act = act
         self.reward = reward
+        self.next_state = next_state
 
 
 class ReplayMemory(object):
@@ -138,20 +144,25 @@ class ReplayMemory(object):
 
 class DQN(nn.Module):
 
-    def __init__(self, n_observations, n_actions, ncols=None):
+    def __init__(self, n_observations, n_actions, env=None):
         super(DQN, self).__init__()
+        # We are dealing with tabular world
+        assert env is not None
+        n_observations = 2
         self.layer1 = nn.Linear(n_observations, 128)
         self.layer2 = nn.Linear(128, 128)
         self.layer3 = nn.Linear(128, n_actions)
-        if ncols is None:
-            ncols = int(math.sqrt(n_observations))
-        self.ncols = ncols
+        self.max_Y, self.max_X = env.get_shape()
 
+    def norm_ten(self,state):
+        state[0,0], state[0,1] = state[0, 0] / self.max_Y, state[0, 1] / self.max_X
+        return state
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self,state):
-        x = state[0,1]*self.ncols + state[0,0]
+        #x = state[0,1]*self.ncols + state[0,0]
+        x = self.norm_ten(state)
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         return self.layer3(x)
@@ -177,8 +188,8 @@ n_actions = env.get_num_acts()
 # Get the number of state observations
 n_observations = env.get_state_size()
 
-policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
+policy_net = DQN(n_observations, n_actions,env=env).to(device)
+target_net = DQN(n_observations, n_actions,env=env).to(device)
 # We start with random policy net
 target_net.load_state_dict(policy_net.state_dict())
 
