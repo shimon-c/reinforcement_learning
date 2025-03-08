@@ -28,13 +28,15 @@ UP=2
 DOWN=3
 env_array = np.array(env_list)
 class Enviroment:
-    MAX_PENALTY = 1000
+    MAX_PENALTY = -1
     def __init__(self, arr=None):
         assert arr is not None
         self.env_arr = np.array(arr)
 
     def get_tensor(self, nx,ny):
-        return torch.Tensor([nx,ny])
+        ten = torch.Tensor([nx,ny])
+        ten = ten.reshape((1,-1))
+        return ten
 
     def __call__(self, x=None,y=None, act:int=None) -> float:
         Y,X = self.env_arr.shape
@@ -78,7 +80,7 @@ class Enviroment:
         Y,X = self.env_arr.shape
         x = random.randint(0, X-1)
         y = random.randint(0, Y-1)
-        return (x,y)
+        return self.get_tensor(y,x)
 
     def sample_action(self):
         n_actions = self.get_num_acts()
@@ -86,14 +88,14 @@ class Enviroment:
         return act
 
     def reset(self):
-        return self.sample_state()
+        return self.get_tensor(ny=0,nx=0)
 
     #observation, reward, terminated, truncated, _ = env.step(action.item())
     def step(self,state=None, action=None):
-        x,y = state[0,0], state[0,1]
+        x,y = state[0,1], state[0,0]
         nstate, reward, terminate_stat = self(x=x, y=y,act=action)
-        if not (nstate[0,0]>=0 and nstate[0,0] < self.env_arr.shape[0]
-                and nstate[0,1]>=0 and nstate[0,1] < self.env_arr.shape[1])
+        if (nstate[0,0]<0 or nstate[0,0] >= self.env_arr.shape[0] or
+                nstate[0,1]<0 or nstate[0,1] >= self.env_arr.shape[1]):
             print("Bug")
         return nstate, reward, terminate_stat,0,0
 
@@ -117,14 +119,14 @@ device = torch.device(
     "cpu"
 )
 
-#Transition = namedtuple('Transition',
-#                        ('state', 'action', 'next_state', 'reward'))
-class Transition:
-    def __init__(self, state=None, act=None, next_state=None, reward=None):
-        self.state = state
-        self.act = act
-        self.reward = reward
-        self.next_state = next_state
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+# class Transition:
+#     def __init__(self, state=None, act=None, next_state=None, reward=None):
+#         self.state = state
+#         self.act = act
+#         self.reward = reward
+#         self.next_state = next_state
 
 
 class ReplayMemory(object):
@@ -155,8 +157,9 @@ class DQN(nn.Module):
         self.max_Y, self.max_X = env.get_shape()
 
     def norm_ten(self,state):
-        state[0,0], state[0,1] = state[0, 0] / self.max_Y, state[0, 1] / self.max_X
-        return state
+        norm_stat = torch.zeros_like(state)
+        norm_stat[:,0], norm_stat[:,1] = state[:,0] / self.max_Y, state[:,1] / self.max_X
+        return norm_stat
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
@@ -166,6 +169,47 @@ class DQN(nn.Module):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         return self.layer3(x)
+
+    def get_next_state(self, state):
+        res = self(state)
+        act = torch.argmax(res[0,:])
+        new_state = torch.zeros_like(state)
+        new_state[:,:] = state
+        if act == LEFT:
+            new_state[0,1] -= 1
+        elif act == RIGHT:
+            if new_state[0,1] == self.max_X:
+                new_state[0,0] += 1
+            else:
+                new_state[0,1] += 1
+        elif act == DOWN:
+            new_state[0,0] -= 1
+        else:
+            if new_state[0,0] == self.max_Y:
+                new_state[0, 1] += 1
+            else:
+                new_state[0,0] += 1
+        return new_state
+
+    def get_path(self, x=0,y=0):
+        state = torch.Tensor([y,x])
+        state = state.reshape((1,-1))
+        state = state.to(device)
+        path = [(x,y)]
+        done = False
+        Y,X = env.get_shape()
+        while not done:
+            next_state = self.get_next_state(state)
+            ny,nx = next_state[0,0].item(), next_state[0,1].item()
+            path.append((nx,ny))
+            if x==X-1 and y==Y-1:
+                done = True
+            state = next_state
+        path_str = ''
+        for pp in path:
+            path_str = f'{path_str}->({pp[0]},{pp[1]})'
+        print(path_str)
+
 
 # BATCH_SIZE is the number of transitions sampled from the replay buffer
 # GAMMA is the discount factor as mentioned in the previous section
@@ -276,7 +320,8 @@ def optimize_model():
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
     # Compute Huber loss
-    criterion = nn.SmoothL1Loss()
+    #criterion = nn.SmoothL1Loss()
+    criterion = nn.MSELoss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Optimize the model
@@ -285,17 +330,21 @@ def optimize_model():
     # In-place gradient clipping
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
+    cur_loss = loss.detach().cpu().item()
+    print(f'cur_loss: {cur_loss}')
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
+    num_episodes = 60
 else:
     num_episodes = 50
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
     state = env.reset()
-    state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    #state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
+        state = state.to(device)
         action = select_action(state)
         observation, reward, terminated, truncated, _ = env.step(state=state, action=action.item())
         reward = torch.tensor([reward], device=device)
@@ -304,9 +353,10 @@ for i_episode in range(num_episodes):
         if terminated:
             next_state = None
         else:
-            next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+            next_state = observation.to(device) #torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
         # Store the transition in memory
+        state = state.to(device)
         memory.push(state, action, next_state, reward)
 
         # Move to the next state
@@ -332,3 +382,4 @@ print('Complete')
 plot_durations(show_result=True)
 plt.ioff()
 plt.show()
+policy_net.get_path()
