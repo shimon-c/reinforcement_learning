@@ -29,12 +29,14 @@ DOWN=3
 env_array = np.array(env_list)
 class Enviroment:
     MAX_PENALTY = -1
-    def __init__(self, arr=None):
+    def __init__(self, arr=None, random_act=True):
         assert arr is not None
         self.env_arr = np.array(arr)
+        self.action_array = np.array([0,1,2,3])
+        self.random_act = random_act
 
-    def get_tensor(self, nx,ny):
-        ten = torch.Tensor([nx,ny])
+    def get_tensor(self, nx=None,ny=None):
+        ten = torch.Tensor([ny,nx])
         ten = ten.reshape((1,-1))
         return ten
 
@@ -46,27 +48,27 @@ class Enviroment:
         yi,xi = int(y.item()),int(x.item())
         if act == LEFT:
             if x <= 0:
-                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+                return self.get_tensor(nx=nx,ny=ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi,xi-1]
-            ny,nx=y,x-1
+            ny,nx=yi,xi-1
         if act == RIGHT:
             if x >= X - 1:
-                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+                return self.get_tensor(nx=nx,ny=ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi,xi+1]
-            ny,nx=y,x+1
+            ny,nx=yi,xi+1
         if act == DOWN:
             if y <= 0:
-                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+                return self.get_tensor(nx=nx,ny=ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi-1,xi]
-            ny,nx=y-1,x
+            ny,nx=yi-1,xi
         if act == UP:
             if y >= Y - 1:
-                return self.get_tensor(nx,ny),self.MAX_PENALTY,False
+                return self.get_tensor(nx=nx,ny=ny),self.MAX_PENALTY,False
             reward = self.env_arr[yi+1,xi]
-            ny,nx=y+1,x
+            ny,nx=yi+1,xi
         # episode is finished when we get to the terminal state
         terminate_stat = ny==Y-1 and nx==X-1
-        new_state = self.get_tensor(nx,ny)
+        new_state = self.get_tensor(nx=nx,ny=ny)
         return new_state, reward, terminate_stat
 
     def get_num_acts(self):
@@ -82,9 +84,57 @@ class Enviroment:
         y = random.randint(0, Y-1)
         return self.get_tensor(y,x)
 
-    def sample_action(self):
+    def sample_action_prv(self,state):
         n_actions = self.get_num_acts()
-        act = random.randint(0,n_actions-1)
+        reward = self.MAX_PENALTY-100
+        best_act = -1
+        y,x = int(state[0,0].item()), int(state[0,1].item())
+        for act in range(0,n_actions):
+            if act == LEFT and x>0:
+                rwd = self.env_arr[y,x-1]
+                if rwd > reward:
+                    reward = rwd
+                    best_act = LEFT
+            elif act == RIGHT and x < self.env_arr.shape[1]:
+                rwd = self.env_arr[y,x+1]
+                if rwd > reward:
+                    reward = rwd
+                    best_act = RIGHT
+            elif act == UP and y<self.env_arr.shape[0]:
+                rwd = self.env_arr[y+1,x]
+                if rwd > reward:
+                    reward = rwd
+                    best_act = UP
+            elif y>0:
+                rwd = self.env_arr[y - 1, x]
+                if rwd > reward:
+                    reward = rwd
+                    best_act = DOWN
+        #act = random.randint(0,n_actions-1)
+        act = best_act
+        return act
+
+    def sample_action(self,state):
+        n_actions = self.get_num_acts()
+        np.random.shuffle(self.action_array)
+        if self.random_act:
+            return self.action_array[0]
+        reward = self.MAX_PENALTY-100
+        best_act = -1
+        y,x = int(state[0,0].item()), int(state[0,1].item())
+        for act in self.action_array:
+            if act == LEFT and x>0:
+                best_act = LEFT
+            elif act == RIGHT and x < self.env_arr.shape[1]:
+                best_act = RIGHT
+            elif act == UP and y<self.env_arr.shape[0]:
+                best_act = UP
+            elif y>0:
+                best_act = DOWN
+            if act>=0:
+                break
+        #act = random.randint(0,n_actions-1)
+        act = best_act
         return act
 
     def reset(self):
@@ -170,9 +220,10 @@ class DQN(nn.Module):
         x = F.relu(self.layer2(x))
         return self.layer3(x)
 
-    def get_next_state(self, state):
+    def get_next_state_prv(self, state):
         res = self(state)
         act = torch.argmax(res[0,:])
+        act = act.item()
         new_state = torch.zeros_like(state)
         new_state[:,:] = state
         if act == LEFT:
@@ -191,7 +242,25 @@ class DQN(nn.Module):
                 new_state[0,0] += 1
         return new_state
 
+    def get_next_state(self, state):
+        res = self(state)
+        act = torch.argmax(res[0,:])
+        act = act.item()
+        new_state = torch.zeros_like(state)
+        new_state[:,:] = state
+        if act == LEFT:
+            new_state[0,1] -= 1
+        elif act == RIGHT:
+            new_state[0,1] += 1
+        elif act == DOWN:
+            new_state[0,0] -= 1
+        else:
+            new_state[0,0] += 1
+        return new_state
+
+
     def get_path(self, x=0,y=0):
+        self.eval()
         state = torch.Tensor([y,x])
         state = state.reshape((1,-1))
         state = state.to(device)
@@ -220,11 +289,12 @@ class DQN(nn.Module):
 # LR is the learning rate of the ``AdamW`` optimizer
 BATCH_SIZE = 128
 GAMMA = 0.99
-EPS_START = 0.9
+EPS_START = 0.9 # 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
+plot_flag = False
 
 # Get number of actions from enviroment
 env = Enviroment(arr=env_list)
@@ -255,7 +325,7 @@ def select_action(state):
             # found, so we pick action with the larger expected reward.
             return policy_net(state).max(1).indices.view(1, 1)
     else:
-        return torch.tensor([[env.sample_action()]], device=device, dtype=torch.long)
+        return torch.tensor([[env.sample_action(state=state)]], device=device, dtype=torch.long)
 
 episode_durations = []
 
@@ -306,7 +376,8 @@ def optimize_model():
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
+    state_values_act = policy_net(state_batch)
+    state_action_values = state_values_act.gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -331,12 +402,12 @@ def optimize_model():
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
     cur_loss = loss.detach().cpu().item()
-    print(f'cur_loss: {cur_loss}')
+    #print(f'cur_loss: {cur_loss}')
     return cur_loss
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
-    num_episodes = 60
+    #num_episodes = 60
 else:
     num_episodes = 50
 
@@ -365,6 +436,7 @@ for i_episode in range(num_episodes):
 
         # Perform one step of the optimization (on the policy network)
         cur_loss = optimize_model()
+        print(f't:{t}, loss:{cur_loss}')
 
         # Soft update of the target network's weights
         # θ′ ← τ θ + (1 −τ )θ′
@@ -380,7 +452,9 @@ for i_episode in range(num_episodes):
             break
 
 print('Complete')
-plot_durations(show_result=True)
-plt.ioff()
-plt.show()
+policy_net.get_path()
+if plot_flag:
+    plot_durations(show_result=True)
+    plt.ioff()
+    plt.show()
 policy_net.get_path()

@@ -26,13 +26,14 @@ sats2=[
 def solve_lin_step(sat_locs, xo=None,yo=None,zo=None,tau=0,C=300000):
     N = sat_locs.shape[0]
     A = np.zeros((N,4))
-
+    # A is the Jacobian
     A[:,0] = (xo-sat_locs[:,0])/sat_locs[0,-1]
     A[:, 1] = (yo-sat_locs[:, 1]) / sat_locs[1,-1]
     A[:, 2] = (zo-sat_locs[:, 2]) / sat_locs[2,-1]
     A[:, 3] = C
     A_inv = np.linalg.pinv(A[:,:3])
     cur_xo = np.array([xo,yo,zo])
+    # Computes the current distance to the sattellites,  having the vector (xo,yo,zo)
     D = sat_locs[:,:3] - cur_xo
     D2 = D * D
     D2_S = np.sum(D2, axis=1)
@@ -60,7 +61,7 @@ def solve_lin(satalites):
         xo += del_vals[0]
         yo += del_vals[1]
         zo += del_vals[2]
-        print(f'del_vec:{del_vals}')
+        print(f'iter:{k}, del_vec:{del_vals}')
     return (xo,yo,zo)
 
 x,y,z = solve_lin(sats1)
