@@ -11,11 +11,11 @@ import math
 import torch.optim as optim
 import torch.nn.functional as F
 
-env_list = [[-1,-1,-1,-1,-1,-1,-1,-1],
+env_list = [[-1,-1,-50,-1,-1,-1,-1,-1],
+        [-1,-50,-1,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-20,-1,-1,-1,-1,-1],
+        [-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,100],
@@ -264,13 +264,13 @@ class DQN(nn.Module):
         state = torch.Tensor([y,x])
         state = state.reshape((1,-1))
         state = state.to(device)
-        path = [(x,y)]
+        path = [(int(x),int(y))]
         done = False
         Y,X = env.get_shape()
         while not done:
             next_state = self.get_next_state(state)
             ny,nx = next_state[0,0].item(), next_state[0,1].item()
-            path.append((nx,ny))
+            path.append((int(nx),int(ny)))
             if nx==X-1 and ny==Y-1:
                 done = True
             state = next_state
@@ -278,6 +278,7 @@ class DQN(nn.Module):
         for pp in path:
             path_str = f'{path_str}->({pp[0]},{pp[1]})'
         print(path_str)
+        return  path, path_str
 
 
 # BATCH_SIZE is the number of transitions sampled from the replay buffer
@@ -451,10 +452,28 @@ for i_episode in range(num_episodes):
             plot_durations()
             break
 
-print('Complete')
-policy_net.get_path()
+
+path, path_str = policy_net.get_path()
+print(f'Complete:\npath:{path_str}')
+import seaborn as sns
+def show_heat_map(path):
+    NY, NX = env.get_shape()
+    grid = np.zeros((NY, NX))
+    for (x, y) in path:
+        grid[x, y] = 1  # Mark path
+
+    # Plot path
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(grid, cmap="Greens", linewidths=0.5, cbar=False)
+    plt.title(f"Optimal Path from (0,0) to ({NY},{NX})")
+    plt.xlabel("X-axis (Columns)")
+    plt.ylabel("Y-axis (Rows)")
+
+
+show_heat_map(path)
+plt.ioff()
+plt.show()
 if plot_flag:
     plot_durations(show_result=True)
     plt.ioff()
     plt.show()
-policy_net.get_path()
