@@ -41,6 +41,7 @@ class QNetwork(nn.Module):
 
     def get_next_state(self, state):
         res = self(state)
+        score = torch.max(res[0,:])
         act = torch.argmax(res[0,:])
         act = act.item()
         new_state = torch.zeros_like(state)
@@ -61,7 +62,7 @@ class QNetwork(nn.Module):
             new_state[0, 1] = self.tab_size - 1
         if new_state[0,1]<0:
             new_state[0,1] = 0
-        return new_state
+        return new_state,score
 
 
     def get_path(self, x=0,y=0, device='cuda:0'):
@@ -73,8 +74,10 @@ class QNetwork(nn.Module):
         done = False
         Y,X = env.get_shape()
         max_path = 3*Y*X
+        score = 0
         while not done:
-            next_state = self.get_next_state(state)
+            next_state, cur_score = self.get_next_state(state)
+            score += cur_score
             ny,nx = next_state[0,0].item(), next_state[0,1].item()
             path.append((int(nx),int(ny)))
             if nx==X-1 and ny==Y-1:
@@ -85,8 +88,9 @@ class QNetwork(nn.Module):
         path_str = ''
         for pp in path:
             path_str = f'{path_str}->({pp[0]},{pp[1]})'
+        path_str = f'{path_str}\nscore:{score}'
         print(path_str)
-        return  path, path_str
+        return  path, path_str,score
 
 
 
@@ -340,6 +344,11 @@ class Enviroment:
 
     def get_shape(self):
         return self.env_arr.shape
+
+    def eval_path(self, path=[]):
+        score = 0
+        for p in path:
+            pass
 
 
 #from dqn import DQNAgent
