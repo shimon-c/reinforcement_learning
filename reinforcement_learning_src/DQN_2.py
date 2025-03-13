@@ -189,7 +189,11 @@ class DQNAgent:
         loss = F.mse_loss(Q_expected, Q_targets)
         # Minimize the loss
         self.optimizer.zero_grad()
+        # In-place gradient clipping
+
         loss.backward()
+        torch.nn.utils.clip_grad_value_(self.qnetwork_local.parameters(), 100)
+        self.optimizer.step()
 
     def get_path(self):
         return self.qnetwork_local.get_path(0,0,device=self.device)
