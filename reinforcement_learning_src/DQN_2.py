@@ -416,8 +416,25 @@ for i_episode in range(num_episodes):
     scores.append(np.mean(rewards[-100:]))
 
 # Close the environment
+import seaborn as sns
+def show_heat_map(path):
+    NY, NX = env.get_shape()
+    grid = np.zeros((NY, NX))
+    for pt in path:
+        x,y = pt
+        grid[x, y] = 1  # Mark path
+
+    # Plot path
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(grid, cmap="Greens", linewidths=0.5, cbar=False)
+    plt.title(f"Optimal Path from (0,0) to ({NY},{NX})")
+    plt.xlabel("X-axis (Columns)")
+    plt.ylabel("Y-axis (Rows)")
+
+
 
 path = agent.get_path()
+show_heat_map(path)
 plt.ylabel("Score")
 plt.xlabel("Episode")
 plt.plot(range(len(rewards)), rewards)
