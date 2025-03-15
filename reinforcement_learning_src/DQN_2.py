@@ -35,7 +35,7 @@ DOWN=3
 # Set the exploration rate
 eps = eps_start = 1.0
 eps_end = 0.01
-eps_end = 0.1
+eps_end = 0.3
 eps_decay = 0.995
 loss_type = "L1"
 
@@ -405,7 +405,7 @@ scores = []
 # Training
 # Run the training loop
 for i_episode in range(num_episodes):
-    print(f'Episode: {i_episode}')
+    print(f'Episode: {i_episode}/{num_episodes}')
     # Initialize the environment and the state
     state = env.reset()
     score = 0
