@@ -10,12 +10,44 @@ import random
 env_list = [[-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-50,-1,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-50,-1,-1,-1,-1,-1,-1,-1],
         [-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-1,-1,-1,-1,-1,100],
+        [-1,-1,-1,-1,-50,-1,-1,-1],
+        [-1,-1,-50,-1,-1,-1,-1,100],
 ]
+
+# Set the number of episodes and the maximum number of steps per episode
+num_episodes = 3000
+num_episodes=1000
+max_steps = 2000
+
+# Get the state and action sizes
+state_size = 2      # env.observation_space.shape[0]
+action_size = 4     #env.action_space.n
+
+# Assume actions can be left,right, up, down So 4 actions.
+LEFT=0
+RIGHT=1
+UP=2
+DOWN=3
+
+# Set the exploration rate
+eps = eps_start = 1.0
+eps_end = 0.01
+eps_end = 0.1
+eps_decay = 0.995
+loss_type = "L1"
+
+def compute_decay(e_start, e_end, num_episode):
+    if num_episode>1:
+        decay = math.exp(math.log(eps_end/e_start)/(num_episode-1))
+    else:
+        decay = 1
+    return decay
+
+decay = compute_decay(e_start=eps, e_end=eps_end,num_episode=num_episodes)
+
 
 # Define the network architecture
 class QNetwork(nn.Module):
@@ -147,6 +179,10 @@ class DQNAgent:
         self.qnetwork_local = self.qnetwork_local.to(self.device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=learning_rate)
         self.replay_buffer = ReplayBuffer(capacity)
+        if loss_type == 'L1':
+            self.loss_obj = nn.SmoothL1Loss()
+        else:
+            self.loss_obj =  nn.MSELoss()
 
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay buffer
@@ -190,7 +226,8 @@ class DQNAgent:
         Q_expected = qnet_out.gather(1, actions.view(-1, 1))
 
         # Compute loss
-        loss = F.mse_loss(Q_expected, Q_targets)
+        #loss = F.mse_loss(Q_expected, Q_targets)
+        loss = self.loss_obj(Q_expected, Q_targets)
         # Minimize the loss
         self.optimizer.zero_grad()
         # In-place gradient clipping
@@ -207,11 +244,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# Assume actions can be left,right, up, down So 4 actions.
-LEFT=0
-RIGHT=1
-UP=2
-DOWN=3
+
 env_array = np.array(env_list)
 
 
@@ -356,9 +389,6 @@ class Enviroment:
 # Create the environment
 #env = gym.make('CartPole-v1')
 env = Enviroment()
-# Get the state and action sizes
-state_size = 2      # env.observation_space.shape[0]
-action_size = 4     #env.action_space.n
 
 # Set the random seed
 seed = 0
@@ -366,19 +396,6 @@ seed = 0
 # Create the DQN agent
 agent = DQNAgent(state_size, action_size, seed)
 
-# Set the number of episodes and the maximum number of steps per episode
-num_episodes = 3000
-max_steps = 2000
-
-# Set the exploration rate
-eps = eps_start = 1.0
-eps_end = 0.01
-eps_decay = 0.995
-def compute_decay(e_start, e_end, num_episode):
-    decay = math.exp(math.log(eps_end/e_start)/(num_episode-1))
-    return decay
-
-decay = compute_decay(e_start=eps, e_end=eps_end,num_episode=num_episodes)
 
 # Set the rewards and scores lists
 rewards = []
@@ -422,7 +439,25 @@ def show_heat_map(path):
     grid = np.zeros((NY, NX))
     for pt in path:
         x,y = pt
-        grid[x, y] = 1  # Mark path
+        grid[y, x] = 1  # Mark path
+
+    # Plot path
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(grid, cmap="Greens", linewidths=0.5, cbar=False)
+    plt.title(f"Optimal Path from (0,0) to ({NY},{NX})")
+    plt.xlabel("X-axis (Columns)")
+    plt.ylabel("Y-axis (Rows)")
+
+def show_score_map(path):
+    NY, NX = env.get_shape()
+    grid = np.zeros((NY, NX))
+    min_reward = np.mean(env_array)
+    max_reward = np.mean(env_array)
+    rng = (max_reward - min_reward)
+    for pt in path:
+        x,y = pt
+        score = (env_array[y,x] - min_reward)/rng
+        grid[y, x] = score  # Mark path
 
     # Plot path
     plt.figure(figsize=(8, 6))
@@ -432,12 +467,18 @@ def show_heat_map(path):
     plt.ylabel("Y-axis (Rows)")
 
 
-
-path = agent.get_path()
+path,path_str,score = agent.get_path()
 show_heat_map(path)
+plt.show()
+show_score_map(path)
+plt.show()
 plt.ylabel("Score")
 plt.xlabel("Episode")
 plt.plot(range(len(rewards)), rewards)
 plt.plot(range(len(rewards)), scores)
 plt.legend(['Reward', "Score"])
 plt.show()
+Y = len(env_list)
+for y in range(Y):
+    row = env_list[y]
+    print(f'{row}')
