@@ -10,11 +10,18 @@ import random
 env_list = [[-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-50,-1,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
-        [-50,-1,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-50,-1,-1,-1,-1,-1],
+        [-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-50,-1,-1,-1],
         [-1,-1,-50,-1,-1,-1,-1,100],
+]
+
+env_list = [
+    [-1,-1,-50,-1,],
+    [-1,-1,-1,-1,],
+    [-1,-1,-1,-1,],
+    [-1,-1,-50,100],
 ]
 
 # Set the number of episodes and the maximum number of steps per episode
@@ -35,18 +42,23 @@ DOWN=3
 # Set the exploration rate
 eps = eps_start = 1.0
 eps_end = 0.01
-eps_end = 0.3
+eps_end = 0.05
+#eps_end=0.5
 eps_decay = 0.995
 loss_type = "L1"
 
 def compute_decay(e_start, e_end, num_episode):
     if num_episode>1:
-        decay = math.exp(math.log(eps_end/e_start)/(num_episode-1))
+        log_val = math.log(eps_end/e_start)/(num_episode-1)
+        decay = math.exp(log_val)
+        tmp = e_start*math.pow(decay,num_episode-1)
+        print(tmp)
     else:
         decay = 1
     return decay
 
-decay = compute_decay(e_start=eps, e_end=eps_end,num_episode=num_episodes)
+eps_decay = compute_decay(e_start=eps, e_end=eps_end,num_episode=num_episodes)
+print(f'epsilon decay: { eps_decay}')
 
 
 # Define the network architecture
@@ -63,8 +75,14 @@ class QNetwork(nn.Module):
         x_n = x / self.tab_size
         return x_n
 
+    def norm_mid(self, x):
+        tbs = self.tab_size/2
+        x_n = (x-tbs) / tbs
+        return x_n
+
     def forward(self, x):
-        x = self.norm(x)
+        #x = self.norm(x)
+        x = self.norm_mid(x)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         x = self.fc3(x)
@@ -249,7 +267,7 @@ env_array = np.array(env_list)
 
 
 class Enviroment:
-    MAX_PENALTY = -1
+    MAX_PENALTY = -100
     def __init__(self, arr=env_list, random_act=True):
         assert arr is not None
         self.env_arr = np.array(arr)
@@ -388,7 +406,7 @@ class Enviroment:
 
 # Create the environment
 #env = gym.make('CartPole-v1')
-env = Enviroment()
+env = Enviroment(arr=env_list)
 
 # Set the random seed
 seed = 0
