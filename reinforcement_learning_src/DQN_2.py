@@ -9,7 +9,7 @@ import random
 
 env_list = [[-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-50,-1,-1,-1,-1,-1,-1],
-        [-1,-1,-1,-1,-1,-1,-1,-1],
+        [-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-1,-1,-1,-1,-1,-1],
         [-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-50,-1,-1,-1,-1,-1],
@@ -17,12 +17,12 @@ env_list = [[-1,-1,-50,-1,-1,-1,-1,-1],
         [-1,-1,-50,-1,-1,-1,-1,100],
 ]
 
-env_list = [
-    [-1,-1,-50,-1,],
-    [-1,-1,-1,-1,],
-    [-1,-1,-1,-1,],
-    [-1,-1,-50,100],
-]
+# env_list = [
+#     [-1,-1,-50,-1,],
+#     [-1,-1,-1,-1,],
+#     [-1,-1,-50,-1,],
+#     [-1,-1,-50,100],
+# ]
 
 # Set the number of episodes and the maximum number of steps per episode
 num_episodes = 3000
@@ -46,6 +46,8 @@ eps_end = 0.05
 #eps_end=0.5
 eps_decay = 0.995
 loss_type = "L1"
+attention_flag = True
+qnet_num_hids = 64  # How many hidden units in QNet
 
 def compute_decay(e_start, e_end, num_episode):
     if num_episode>1:
@@ -60,15 +62,37 @@ def compute_decay(e_start, e_end, num_episode):
 eps_decay = compute_decay(e_start=eps, e_end=eps_end,num_episode=num_episodes)
 print(f'epsilon decay: { eps_decay}')
 
+class Attention(nn.Module):
+    def __init__(self, in_hids=None, squeeze_frac=4):
+        super(Attention, self).__init__()
+        self.in_hids = in_hids
+        self.squeeze_frac = squeeze_frac
+        hidden_size = in_hids // squeeze_frac
+        lst = [
+            nn.Linear(in_features=in_hids, out_features=hidden_size),
+            nn.ReLU(),
+            nn.Linear(in_features=hidden_size, out_features=in_hids)
+        ]
+        self.net = nn.Sequential()
+
+    def forward(self, X):
+        X1 = self.net(X)
+        X1 = torch.sigmoid(X1)
+        Y = X * X1
+        return Y
 
 # Define the network architecture
 class QNetwork(nn.Module):
     def __init__(self, state_size, action_size):
         super(QNetwork, self).__init__()
         state_size=2
-        self.fc1 = nn.Linear(state_size, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, action_size)
+        in_size = qnet_num_hids
+        self.fc1 = nn.Linear(state_size, in_size)
+        self.attn = None
+        if attention_flag:
+            self.attn = Attention(in_hids=in_size)
+        self.fc2 = nn.Linear(in_size, in_size)
+        self.fc3 = nn.Linear(in_size, action_size)
         self.tab_size = len(env_list)
 
     def norm(self, x):
@@ -84,6 +108,8 @@ class QNetwork(nn.Module):
         #x = self.norm(x)
         x = self.norm_mid(x)
         x = torch.relu(self.fc1(x))
+        if self.attn:
+            x = self.attn(x)
         x = torch.relu(self.fc2(x))
         x = self.fc3(x)
         x = x.squeeze(dim=1)
